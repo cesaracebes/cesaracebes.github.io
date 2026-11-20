@@ -1,0 +1,67 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>overflow check</title></head>
+<body>
+<pre id="out">RUNNING</pre>
+<script>
+var langs = ["en", "es", "ca"];
+var slugs = ["", "planning/", "devices/", "regulatory/", "ai/", "publications/", "teaching/"];
+var widths = [1440, 1100, 820, 390, 320];
+var jobs = [];
+langs.forEach(function (l) { slugs.forEach(function (s) { widths.forEach(function (w) { jobs.push({ url: l + "/" + s, w: w }); }); }); });
+var out = [], i = 0;
+function next() {
+  if (i >= jobs.length) { document.getElementById("out").textContent = "DONE\n" + (out.length ? out.join("\n") : "NO OVERFLOW"); return; }
+  var job = jobs[i++];
+  var f = document.createElement("iframe");
+  f.style.width = job.w + "px"; f.style.height = "900px"; f.style.border = "0";
+  // poll instead of onload: onload waits for third-party iframes (Sketchfab), which never settle headless
+  var go = function () {
+    setTimeout(function () {
+      try {
+        var d = f.contentDocument, W = d.documentElement.clientWidth;
+        if (d.documentElement.scrollWidth > W + 1) out.push(job.url + " @" + job.w + " PAGE scrollWidth " + d.documentElement.scrollWidth);
+        var els = d.body.querySelectorAll("*"), seen = 0;
+        for (var k = 0; k < els.length && seen < 6; k++) {
+          var el = els[k];
+          var hasText = false;
+          for (var c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 3 && c.textContent.trim()) { hasText = true; break; }
+          if (!hasText || el.classList.contains("skip")) continue;
+          var r = el.getBoundingClientRect();
+          if (r.width === 0) continue;
+          var over = r.right > W + 1 || r.left < -1 || el.scrollWidth > el.clientWidth + 2 && getComputedStyle(el).overflowX !== "visible";
+          var p = el.parentElement, clipped = false;
+          while (p && p !== d.body) {
+            var cs = getComputedStyle(p);
+            if (cs.overflow !== "visible") { var pr = p.getBoundingClientRect(); if (r.right > pr.right + 1 || r.bottom > pr.bottom + 1) clipped = true; break; }
+            p = p.parentElement;
+          }
+          if (el.matches("h1,h2,strong,.reg-big,.stat-n,.big-num,.area-num,.tech-k,.fw-k,.mini-n,.step-n,.pub-year,.hero-name,.area-title,.letter")) {
+            for (var c2 = el.firstChild; c2; c2 = c2.nextSibling) {
+              if (c2.nodeType !== 3) continue;
+              var re = /\S+/g, m;
+              while ((m = re.exec(c2.textContent))) {
+                var rg = d.createRange(); rg.setStart(c2, m.index); rg.setEnd(c2, m.index + m[0].length);
+                var rs = rg.getClientRects(), tops = {};
+                for (var q = 0; q < rs.length; q++) tops[Math.round(rs[q].top)] = 1;
+                if (Object.keys(tops).length > 1) { seen++; out.push(job.url + " @" + job.w + " BROKEN WORD '" + m[0] + "' in " + el.tagName + "." + el.className); }
+              }
+            }
+          }
+          if (over || clipped) { seen++; out.push(job.url + " @" + job.w + " " + el.tagName + "." + el.className + " '" + el.textContent.trim().slice(0, 50) + "' right=" + Math.round(r.right) + (clipped ? " CLIPPED" : "")); }
+        }
+      } catch (err) { out.push(job.url + " ERR " + err); }
+      f.remove(); next();
+    }, 250);
+  };
+  f.src = "../" + job.url; document.body.appendChild(f);
+  var tries = 0;
+  (function poll() {
+    var d = null;
+    try { d = f.contentDocument; } catch (err) {}
+    var ready = d && d.URL.indexOf(job.url) !== -1 && d.readyState !== "loading" && (!d.fonts || d.fonts.status === "loaded");
+    if (ready || tries++ > 200) go(); else setTimeout(poll, 100);
+  })();
+}
+next();
+</script>
+</body></html>
